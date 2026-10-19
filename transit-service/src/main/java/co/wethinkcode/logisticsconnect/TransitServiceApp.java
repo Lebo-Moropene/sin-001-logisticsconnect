@@ -10,9 +10,6 @@ public class TransitServiceApp {
     private static final HubServiceClient HUB_CLIENT =
             new HubServiceClient();
 
-    private static final DelayStageClient DELAY_STAGE_CLIENT =
-            new DelayStageClient();
-
     private static final DelayStageCache DELAY_STAGE_CACHE =
             new DelayStageCache();
 
@@ -69,18 +66,11 @@ public class TransitServiceApp {
                 return;
             }
 
-            Integer stage;
+            // The stage comes from the package-status-topic subscription
+            // rather than a synchronous call to delay-stage-service.
+            Integer stage = DELAY_STAGE_CACHE.find(hubId);
 
-            try {
-                stage = DELAY_STAGE_CLIENT.findDelayStage(hubId);
-            } catch (Exception e) {
-                ctx.status(502).json(Map.of(
-                        "error",
-                        "Could not retrieve delay stage from delay-stage-service"));
-                return;
-            }
-
-            // A hub with no recorded stage is running normally.
+            // A hub the topic has not mentioned yet is running normally.
             int delayStage = stage == null ? 0 : stage;
 
             Map<String, Object> response = new LinkedHashMap<>();
