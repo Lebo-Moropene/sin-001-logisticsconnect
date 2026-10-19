@@ -13,10 +13,30 @@ public class TransitServiceApp {
     private static final DelayStageClient DELAY_STAGE_CLIENT =
             new DelayStageClient();
 
+    private static final DelayStageCache DELAY_STAGE_CACHE =
+            new DelayStageCache();
+
     private static final EtaCalculator ETA_CALCULATOR =
             new EtaCalculator();
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        PackageStatusSubscriber subscriber =
+                new PackageStatusSubscriber(DELAY_STAGE_CACHE);
+
+        // The broker is a hard dependency: without it this service
+        // would never learn about delay stages.
+        subscriber.start();
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                subscriber.close();
+            } catch (Exception e) {
+                System.err.println(
+                        "Error closing ActiveMQ resources: "
+                                + e.getMessage());
+            }
+        }));
+
         Javalin app = Javalin.create().start(7053);
 
         app.get("/health", ctx -> ctx.result("OK"));
