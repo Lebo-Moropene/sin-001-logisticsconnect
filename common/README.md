@@ -58,11 +58,12 @@ Once the TODOs below are implemented, verify end-to-end by publishing a message 
 `delay-stage-service` and confirming the consumer(s) receive it — e.g. via logs, or by
 watching the topic in the web console.
 
-## TODO
+## Progress
 
-- Add `activemq-client` publish logic to `delay-stage-service` on its stage/state-change endpoint.
-- Add `activemq-client` subscriber logic to consumer service(s) above, replacing any
-  direct synchronous calls to `delay-stage-service`.
-- `alertbot` (stretch goal) needs its own subscriber logic too — its `pom.xml`
-  already has the `activemq-client` dependency alongside the other participating
-  services.
+- [x] `delay-stage-service` publishes to `package-status-topic` on its
+      stage/state-change endpoint.
+- [x] `transit-service` subscribes to the topic and serves ETAs from the
+      stages it receives — no synchronous delay-stage call remains.
+- [ ] `alertbot` (stretch goal) subscriber logic — its `pom.xml` already has
+      the `activemq-client` dependency alongside the other participating
+      services.
