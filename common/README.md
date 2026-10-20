@@ -64,6 +64,5 @@ watching the topic in the web console.
       stage/state-change endpoint.
 - [x] `transit-service` subscribes to the topic and serves ETAs from the
       stages it receives — no synchronous delay-stage call remains.
-- [ ] `alertbot` (stretch goal) subscriber logic — its `pom.xml` already has
-      the `activemq-client` dependency alongside the other participating
-      services.
+- [x] `alertbot` subscribes to `package-status-topic` and posts a simulated
+      social alert when a hub crosses the stage 5 threshold.
