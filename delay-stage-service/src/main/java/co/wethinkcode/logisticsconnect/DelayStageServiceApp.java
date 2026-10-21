@@ -1,4 +1,3 @@
-
 package co.wethinkcode.logisticsconnect;
 
 import co.wethinkcode.logisticsconnect.mq.MqConfig;
@@ -15,32 +14,58 @@ import javax.jms.Session;
 import javax.jms.TextMessage;
 import javax.jms.Topic;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Manages transit delay stages for individual hubs.
+ * LogisticsConnect delay-stage service (port 7052) — tracks the Transit Delay
+ * Stage (0–8, e.g. weather shutdowns) for each hub.
  *
- * Each hub has a delay stage between 0 and 8.
- * Stages are stored in memory and are cleared when the service restarts.
+ * <p>State is held in memory (cleared on restart). Successful stage changes are
+ * published to the ActiveMQ topic {@code package-status-topic} (see
+ * {@link MqConfig}) so downstream services — transit-service, alertbot — can react
+ * without this service knowing or caring who is listening.</p>
  *
- * The service exposes REST endpoints for retrieving and updating stages.
- * Successful updates are published to an ActiveMQ topic.
+ * <h2>REST API</h2>
+ * <ul>
+ *   <li>{@code GET /health} — liveness probe, returns {@code OK}.</li>
+ *   <li>{@code GET /delay-stages} — every hub's current stage.</li>
+ *   <li>{@code GET /delay-stage/{hubId}} — one hub's stage; 404 if never set.</li>
+ *   <li>{@code POST /delay-stage/{hubId}} with body {@code {"stage": 3}} —
+ *       create/replace the stage (0–8) and publish a message to the topic.</li>
+ * </ul>
+ *
+ * <h2>MQ contract</h2>
+ * <p>Every accepted POST publishes a JSON body of the form
+ * {@code {"hubId": "H-501", "stage": 5, "timestamp": "…"}} to
+ * {@code package-status-topic}. If the broker publish fails the update is rejected
+ * with {@code 503} — the stage <em>was</em> saved, but callers are told the event
+ * was not broadcast.</p>
  */
 public class DelayStageServiceApp {
 
+    /** In-memory hub ID → delay stage store. */
     private static final Map<String, Integer> DELAY_STAGES =
             new ConcurrentHashMap<>();
 
-    private static final ObjectMapper OBJECT_MAPPER =
-            new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    /** Guards JMS session/producer use — JMS objects are not thread-safe. */
     private static final Object MQ_LOCK = new Object();
 
     private static Connection connection;
     private static Session session;
     private static MessageProducer producer;
 
+    /**
+     * Boots the service: connects to ActiveMQ (failing fast if the broker is
+     * unreachable), starts Javalin on port 7052, wires the endpoints, and registers
+     * a shutdown hook to close JMS resources.
+     *
+     * @param args ignored
+     * @throws JMSException if the broker connection cannot be established
+     */
     public static void main(String[] args) throws Exception {
 
         // Connect to ActiveMQ before accepting requests.
@@ -49,15 +74,22 @@ public class DelayStageServiceApp {
         // Start the REST service.
         Javalin app = Javalin.create().start(7052);
 
+        /** Liveness probe. */
         app.get("/health", ctx -> ctx.result("OK"));
 
-        // TODO (Tracks the Transit Delay Stage (0-8, e.g. weather shutdowns).)
-        // Add domain endpoints for delay-stage-service here.
+        /** Snapshot of every known hub's delay stage. */
+        app.get("/delay-stages", ctx -> {
+            Map<String, Object> snapshot = new LinkedHashMap<>();
 
-        // Return the current delay stage for one hub.
+            DELAY_STAGES.forEach((hubId, stage) ->
+                    snapshot.put(hubId, Map.of("hubId", hubId, "stage", stage)));
+
+            ctx.json(snapshot);
+        });
+
+        /** Return the current delay stage for one hub. */
         app.get("/delay-stage/{hubId}", ctx -> {
-            String hubId = ctx.pathParam("hubId")
-                    .trim().toUpperCase();
+            String hubId = normalizeHubId(ctx.pathParam("hubId"));
 
             Integer stage = DELAY_STAGES.get(hubId);
 
@@ -73,14 +105,12 @@ public class DelayStageServiceApp {
             ));
         });
 
-        // Create or update a hub's delay stage.
+        /** Create or update a hub's delay stage, then publish the change to MQ. */
         app.post("/delay-stage/{hubId}", ctx -> {
-            String hubId = ctx.pathParam("hubId")
-                    .trim().toUpperCase();
+            String hubId = normalizeHubId(ctx.pathParam("hubId"));
 
             if (hubId.isBlank()) {
-                ctx.status(400).json(
-                        Map.of("error", "Hub ID is required"));
+                ctx.status(400).json(Map.of("error", "Hub ID is required"));
                 return;
             }
 
@@ -124,8 +154,7 @@ public class DelayStageServiceApp {
                 publishStageChange(hubId, stage, timestamp);
             } catch (Exception e) {
                 System.err.println(
-                        "Failed to publish delay-stage update: "
-                                + e.getMessage());
+                        "Failed to publish delay-stage update: " + e.getMessage());
 
                 ctx.status(503).json(Map.of(
                         "error", "Stage saved, but the ActiveMQ message could not be published"
@@ -163,15 +192,27 @@ public class DelayStageServiceApp {
     }
 
     /**
+     * Normalizes a hub ID (trim + upper-case) so {@code " h-501 "} and {@code "H-501"}
+     * address the same entry, matching ingestion-service's ID conventions.
+     *
+     * @param hubId raw hub ID from the path
+     * @return the normalized hub ID
+     */
+    private static String normalizeHubId(String hubId) {
+        return hubId == null ? "" : hubId.trim().toUpperCase();
+    }
+
+    /**
      * Connects to ActiveMQ and prepares the topic producer.
+     *
+     * @throws JMSException if the connection or session cannot be created
      */
     private static void connectToBroker() throws JMSException {
         ActiveMQConnectionFactory factory =
                 new ActiveMQConnectionFactory(MqConfig.BROKER_URL);
 
         connection = factory.createConnection();
-        session = connection.createSession(
-                false, Session.AUTO_ACKNOWLEDGE);
+        session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
 
         Topic topic = session.createTopic(MqConfig.TOPIC);
         producer = session.createProducer(topic);
@@ -179,15 +220,20 @@ public class DelayStageServiceApp {
 
         connection.start();
 
-        System.out.println(
-                "Connected to ActiveMQ topic: " + MqConfig.TOPIC);
+        System.out.println("Connected to ActiveMQ topic: " + MqConfig.TOPIC);
     }
 
     /**
-     * Publishes a JSON message whenever a hub's delay stage changes.
+     * Publishes a JSON message to {@code package-status-topic} whenever a hub's
+     * delay stage changes.
+     *
+     * @param hubId     the hub whose stage changed
+     * @param stage     the new stage (0–8)
+     * @param timestamp ISO-8601 instant of the change
+     * @throws Exception on JMS serialization/transport failure
      */
-    private static void publishStageChange(
-            String hubId, int stage, String timestamp) throws Exception {
+    private static void publishStageChange(String hubId, int stage,
+                                           String timestamp) throws Exception {
 
         Map<String, Object> event = Map.of(
                 "hubId", hubId,
@@ -206,4 +252,3 @@ public class DelayStageServiceApp {
         System.out.println("Published delay-stage event: " + json);
     }
 }
-
