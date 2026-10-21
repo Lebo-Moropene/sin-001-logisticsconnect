@@ -62,9 +62,11 @@ there's no single correct answer, but be ready to explain your reasoning.
 ```
 ingestion-service/
 ├── pom.xml
-└── src/main/
-    ├── java/co/wethinkcode/logisticsconnect/IngestionServiceApp.java
-    └── resources/hubs-global.csv
+└── src/
+    ├── main/
+    │   ├── java/co/wethinkcode/logisticsconnect/IngestionServiceApp.java
+    │   └── resources/hubs-global.csv
+    └── test/java/co/wethinkcode/logisticsconnect/IngestionServiceAppTest.java
 ```
 
 ## Build
@@ -79,16 +81,19 @@ mvn package
 java -jar target/ingestion-service.jar
 ```
 
-Listens on port `7050`. Currently just exposes `/health` — the actual CSV
-parsing/cleaning logic is a TODO.
+Listens on port `7050`. Exposes `GET /hubs` (all cleaned records), `GET
+/hubs/{hubId}` (single record, case-insensitive), and `GET /health`.
 
 ## Test
 
-No automated tests yet. Manually verify it's up:
+Run the cleaning-rule unit tests:
+
+```
+mvn test
+```
+
+Or manually verify the service is up:
 
 ```
 curl http://localhost:7050/health   # -> OK
 ```
-
-To add real tests, add JUnit 5 + the Surefire plugin to `pom.xml`, put tests under
-`src/test/java/co/wethinkcode/logisticsconnect/`, and run `mvn test`.

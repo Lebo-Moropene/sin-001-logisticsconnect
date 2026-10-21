@@ -54,9 +54,9 @@ from their own directories at the project root).
 docker compose ps          # confirm the broker container is healthy
 ```
 
-Once the TODOs below are implemented, verify end-to-end by publishing a message from
-`delay-stage-service` and confirming the consumer(s) receive it — e.g. via logs, or by
-watching the topic in the web console.
+With all progress items below implemented, verify end-to-end by publishing a message
+from `delay-stage-service` and confirming the consumer(s) receive it — e.g. via logs,
+or by watching the topic in the web console.
 
 ## Progress
 

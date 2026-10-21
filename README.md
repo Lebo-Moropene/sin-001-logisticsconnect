@@ -147,14 +147,21 @@ cd alertbot && mvn package && java -jar target/alertbot.jar
 
 ## Test
 
-No automated tests exist yet (this is a scaffold). Each running service exposes
-`/health`, so sanity-check manually:
+`ingestion-service`, `transit-service`, and `alertbot` have JUnit 5 tests (CSV
+cleaning, the ETA window, the delay-stage cache and subscriber, and the alert
+threshold). Run them per module:
+
+```
+cd transit-service && mvn test
+```
+
+Each running service also exposes `/health` for a manual smoke check:
 
 ```
 curl http://localhost:7050/health   # -> OK
 ```
 
-To add real tests to a module, add JUnit 5 and Surefire to its `pom.xml`:
+To add tests to another module, add JUnit 5 and Surefire to its `pom.xml`:
 
 ```xml
 <dependency>
@@ -173,8 +180,4 @@ To add real tests to a module, add JUnit 5 and Surefire to its `pom.xml`:
 </plugin>
 ```
 
-then add tests under that module's `src/test/java/...` and run:
-
-```
-mvn test
-```
+then add tests under that module's `src/test/java/...` and run `mvn test`.
